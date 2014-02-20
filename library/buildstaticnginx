@@ -1,0 +1,181 @@
+#!/usr/bin/python 
+
+DOCUMENTATION = '''
+---
+module: buildstaticnginx
+short_description: Building and installation of nginx with static openssl.
+description:
+    - Based on https://wiki.mozilla.org/Security/Server_Side_TLS#Nginx_configuration_details
+options:
+  nginx_version:
+    description:
+      - The version of nginx to download and install.
+    required: false
+    default: 1.5.10
+  openssl_version:
+    description:
+      - The version of openssl to use.
+    required: false
+    default: 1.0.1f
+  pcre_version:
+    description:
+      - The version of PCRE to use.
+    required: false
+    default: 8.34
+  install_prefix:
+    description:
+      - The prefix for the nginx installation.
+    required: false
+    default: /usr/local/nginx
+  build_dir:
+    description:
+      - The directory in which to build nginx.
+    required: false
+    default: /tmp/nginx
+  clean_after:
+    description:
+      - If true, deletes the build_dir after a successful build.
+    required: false
+    default: True
+    aliases: []
+'''
+import os
+import re
+import shutil
+
+def is_build_needed(module, nginx_bin, nginx_version, openssl_version, pcre_version):
+    if not os.path.exists(nginx_bin):
+        return True
+
+    # Check versions of current NginX
+    rc, out, err = module.run_command('{} -V'.format(nginx_bin))
+    cur_pcre_version = re.search(
+            "--with-pcre=[^\s]*?pcre-([^\s]+)\s", out).group(1)
+    cur_openssl_version = res.search(
+            "--with-openssl=[^\s]*?openssl-([^\s+)\s", out).group(1)
+    cur_nginx_version = re.search(
+            "nginx version: nginx/(.+)$", out, re.MULTILINE).group(1)
+    return (
+        cur_pcre_version != module.params.get('pcre_version') or 
+        cur_openssl_version != module.params.get('openssl_version') or
+        cur_nginx_version != module.params.get('nginx_version')
+    )
+
+def check_command(module, args):
+    rc, out, err = module.run_command(args)
+    if rc != 0:
+        module.fail_json(msg=out + err)
+
+def verify_signature(module, tarball, sig, name):
+    """
+    Verify signatures using the packaged keyring, which contains the signing
+    and developer keys from each of the nginx, pcre, and openssl projects.
+    """
+    keyring = "/tmp/nginx-compile-keyring.gpg"
+    check_command(module, "gpgv --keyring {} {} {}".format(keyring, sig, tarball))
+
+def fetch_tarball(module, build_dir, name, base_url, version, asc_suffix=".asc"):
+    base_dir = os.path.join(build_dir, "{}-{}".format(name, version))
+    if not os.path.exists(base_dir):
+        tarball = base_dir + ".tar.gz"
+        asc = tarball + asc_suffix
+        if not os.path.exists(tarball):
+            url = base_url + "{}-{}.tar.gz".format(name, version)
+            asc_url = url + asc_suffix
+            check_command(module, "curl -L {} > {}".format(url, tarball))
+            check_command(module, "curl -L {} > {}".format(asc_url, asc))
+            verify_signature(module, tarball, asc, name)
+            check_command(module, "tar -xz --directory {} -f {}".format(build_dir, tarball))
+    return base_dir
+
+def main():
+    ansible_facts = {}
+    arg_spec = {
+        "nginx_version": {"default": "1.5.10"},
+        "openssl_version": {"default": "1.01f"},
+        "pcre_version": {"default": "8.34"},
+        "install_prefix": {"default": "/usr/local/nginx/"},
+        "build_dir": {"default": "/tmp/nginx"},
+        "clean_after": {"default": True, "choices": BOOLEANS},
+    }
+    result = {}
+
+    module = AnsibleModule(
+        argument_spec=arg_spec,
+        supports_check_mode=True,
+    )
+    nginx_version = module.params.get("nginx_version")
+    openssl_version = module.params.get("openssl_version")
+    pcre_version = module.params.get("pcre_version")
+    install_prefix = module.params.get("install_prefix")
+    build_dir = module.params.get("build_dir")
+    clean_after = module.params.get("clean_after")
+    nginx_bin = os.path.join(install_prefix, "nginx", "sbin", "nginx")
+    
+    build_needed = is_build_needed(module, nginx_bin, nginx_version,
+                                   openssl_version, pcre_version)
+    if module.check_mode:
+        module.exit_json(changed=build_needed)
+
+    if not build_needed:
+        result['changed'] = False
+        result['ansible_facts'] = {
+            'nginx_version': nginx_version,
+            'openssl_version': openssl_version,
+            'pcre_version': pcre_version,
+            'nginx_bin': nginx_bin,
+        }
+        module.exit_json(**result)
+
+    #
+    # Build everything!
+    #
+
+    try:
+        os.makedirs(build_dir)
+    except OSError:
+        pass
+
+    openssl_base_dir = fetch_tarball(module, build_dir, "openssl",
+            "http://www.openssl.org/source/", openssl_version)
+    pcre_base_dir = fetch_tarball(module, build_dir, "pcre",
+            "ftp://ftp.csx.cam.ac.uk/pub/software/programming/pcre/",
+            pcre_version, asc_suffix=".sig")
+    nginx_base_dir = fetch_tarball(module, build_dir, "nginx",
+            "http://nginx.org/download/", nginx_version)
+
+    os.chdir(nginx_base_dir)
+    check_command(module, r"""\
+        ./configure \
+        --with-ld-opt="-L {openssl_base_dir}/lib -Wl,-rpath -lssl -lcrypto -ldl -lz" \
+        --prefix={install_prefix} \
+        --with-pcre={pcre_base_dir} \
+        --with-openssl={openssl_base_dir} \
+        --with-http_ssl_module \
+        --with-http_spdy_module \
+        --with-file-aio \
+        --with-ipv6 \
+        --with-http_gzip_static_module \
+        --with-http_stub_status_module \
+        --without-mail_pop3_module \
+        --without-mail_smtp_module \
+        --without-mail_imap_module \
+        && make && make install""".format(
+            openssl_base_dir=openssl_base_dir,
+            install_prefix=install_prefix,
+            pcre_base_dir=pcre_base_dir,
+        ))
+
+    result['changed'] = True
+    result['ansible_facts'] = {
+        'nginx_version': nginx_version,
+        'openssl_version': openssl_version,
+        'pcre_version': pcre_version,
+        'nginx_bin': nginx_bin,
+    }
+    if clean_after and False:
+        shutil.rmtree(build_dir)
+    module.exit_json(**result)
+
+from ansible.module_utils.basic import *
+main()

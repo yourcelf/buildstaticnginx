@@ -1,0 +1,6 @@
+---
+- name: Install NginX with static OpenSSL
+  roles:
+   - nginx
+  hosts: plndemo.tirl.org
+  user: tc1

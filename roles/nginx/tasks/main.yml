@@ -1,0 +1,12 @@
+---
+# Install nginx
+ - name: Copy the gpg keyring to verify sources.
+   copy: src=keyring.gpg dest=/tmp/nginx-compile-keyring.gpg
+
+ - name: Build static nginx
+   buildstaticnginx: nginx_version={{ nginx_version }} openssl_version={{ openssl_version }} pcre_version={{ pcre_version }} install_prefix={{ install_prefix }}
+   sudo: yes
+
+ - name: Create upstart script
+   template: src=upstart-conf dest=/etc/init/nginx.conf
+   sudo: yes
