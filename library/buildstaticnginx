@@ -49,16 +49,17 @@ def is_build_needed(module, nginx_bin, nginx_version, openssl_version, pcre_vers
 
     # Check versions of current NginX
     rc, out, err = module.run_command('{} -V'.format(nginx_bin))
+    ver = out + err
     cur_pcre_version = re.search(
-            "--with-pcre=[^\s]*?pcre-([^\s]+)\s", out).group(1)
-    cur_openssl_version = res.search(
-            "--with-openssl=[^\s]*?openssl-([^\s+)\s", out).group(1)
+            "--with-pcre=[^\s]*?pcre-([^\s]+)\s", ver).group(1)
+    cur_openssl_version = re.search(
+            "--with-openssl=[^\s]*?openssl-([^\s]+)\s", ver).group(1)
     cur_nginx_version = re.search(
-            "nginx version: nginx/(.+)$", out, re.MULTILINE).group(1)
+            "nginx version: nginx/(.+)$", ver, re.MULTILINE).group(1)
     return (
-        cur_pcre_version != module.params.get('pcre_version') or 
-        cur_openssl_version != module.params.get('openssl_version') or
-        cur_nginx_version != module.params.get('nginx_version')
+        cur_pcre_version != pcre_version or \
+        cur_openssl_version != openssl_version or \
+        cur_nginx_version != nginx_version
     )
 
 def check_command(module, args):
@@ -110,12 +111,13 @@ def main():
     install_prefix = module.params.get("install_prefix")
     build_dir = module.params.get("build_dir")
     clean_after = module.params.get("clean_after")
-    nginx_bin = os.path.join(install_prefix, "nginx", "sbin", "nginx")
+    nginx_bin = os.path.join(install_prefix, "sbin", "nginx")
     
     build_needed = is_build_needed(module, nginx_bin, nginx_version,
                                    openssl_version, pcre_version)
     if module.check_mode:
         module.exit_json(changed=build_needed)
+        return
 
     if not build_needed:
         result['changed'] = False
@@ -126,6 +128,7 @@ def main():
             'nginx_bin': nginx_bin,
         }
         module.exit_json(**result)
+        return
 
     #
     # Build everything!
@@ -177,5 +180,6 @@ def main():
         shutil.rmtree(build_dir)
     module.exit_json(**result)
 
-from ansible.module_utils.basic import *
+# Magic from ansible.
+#<<INCLUDE_ANSIBLE_MODULE_COMMON>>
 main()
