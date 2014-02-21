@@ -67,12 +67,12 @@ def check_command(module, args):
     if rc != 0:
         module.fail_json(msg=out + err)
 
-def verify_signature(module, tarball, sig, name):
+def verify_signature(module, build_dir, tarball, sig, name):
     """
     Verify signatures using the packaged keyring, which contains the signing
     and developer keys from each of the nginx, pcre, and openssl projects.
     """
-    keyring = "/tmp/nginx-compile-keyring.gpg"
+    keyring = os.path.join(build_dir, "nginx-compile-keyring.gpg")
     check_command(module, "gpgv --keyring {} {} {}".format(keyring, sig, tarball))
 
 def fetch_tarball(module, build_dir, name, base_url, version, asc_suffix=".asc"):
@@ -85,7 +85,7 @@ def fetch_tarball(module, build_dir, name, base_url, version, asc_suffix=".asc")
             asc_url = url + asc_suffix
             check_command(module, "curl -L {} > {}".format(url, tarball))
             check_command(module, "curl -L {} > {}".format(asc_url, asc))
-            verify_signature(module, tarball, asc, name)
+            verify_signature(module, build_dir, tarball, asc, name)
             check_command(module, "tar -xz --directory {} -f {}".format(build_dir, tarball))
     return base_dir
 
@@ -176,7 +176,7 @@ def main():
         'pcre_version': pcre_version,
         'nginx_bin': nginx_bin,
     }
-    if clean_after and False:
+    if clean_after:
         shutil.rmtree(build_dir)
     module.exit_json(**result)
 
