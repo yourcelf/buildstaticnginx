@@ -11,7 +11,7 @@ options:
     description:
       - The version of nginx to download and install.
     required: false
-    default: 1.5.10
+    default: 1.5.11
   openssl_version:
     description:
       - The version of openssl to use.
@@ -92,7 +92,7 @@ def fetch_tarball(module, build_dir, name, base_url, version, asc_suffix=".asc")
 def main():
     ansible_facts = {}
     arg_spec = {
-        "nginx_version": {"default": "1.5.10"},
+        "nginx_version": {"default": "1.5.11"},
         "openssl_version": {"default": "1.01f"},
         "pcre_version": {"default": "8.34"},
         "install_prefix": {"default": "/usr/local/nginx/"},
@@ -141,16 +141,29 @@ def main():
 
     openssl_base_dir = fetch_tarball(module, build_dir, "openssl",
             "http://www.openssl.org/source/", openssl_version)
+    openssl_build_dir = os.path.abspath(os.path.join(
+        openssl_base_dir, "..", "openssl_build"))
     pcre_base_dir = fetch_tarball(module, build_dir, "pcre",
             "ftp://ftp.csx.cam.ac.uk/pub/software/programming/pcre/",
             pcre_version, asc_suffix=".sig")
     nginx_base_dir = fetch_tarball(module, build_dir, "nginx",
             "http://nginx.org/download/", nginx_version)
 
+    os.chdir(openssl_base_dir)
+    check_command(module, r"""\
+        rm -rf {openssl_build_dir} ; \
+        mkdir -p {openssl_build_dir} ; \
+        make clean ; \
+        ./config --prefix={openssl_build_dir} no-shared enable-ec_nistp_64_gcc_128 \
+        && make depend \
+        && make \
+        && make install_sw""".format(openssl_build_dir=openssl_build_dir)
+    )
     os.chdir(nginx_base_dir)
     check_command(module, r"""\
         ./configure \
-        --with-ld-opt="-L {openssl_base_dir}/lib -Wl,-rpath -lssl -lcrypto -ldl -lz" \
+        --with-cc-opt="-I {openssl_build_dir}/include -I/usr/include" \
+        --with-ld-opt="-L {openssl_build_dir}/lib -Wl,-rpath -lssl -lcrypto -ldl -lz" \
         --prefix={install_prefix} \
         --with-pcre={pcre_base_dir} \
         --with-openssl={openssl_base_dir} \
@@ -165,6 +178,7 @@ def main():
         --without-mail_imap_module \
         && make && make install""".format(
             openssl_base_dir=openssl_base_dir,
+            openssl_build_dir=openssl_build_dir,
             install_prefix=install_prefix,
             pcre_base_dir=pcre_base_dir,
         ))

@@ -1,5 +1,5 @@
 ---
-nginx_version: 1.5.10
+nginx_version: 1.5.11
 openssl_version: 1.0.1f
 pcre_version: 8.34
 install_prefix: /usr/local/nginx/
