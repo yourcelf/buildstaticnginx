@@ -63,7 +63,7 @@ def is_build_needed(module, nginx_bin, nginx_version, openssl_version, pcre_vers
     )
 
 def check_command(module, args):
-    rc, out, err = module.run_command(args)
+    rc, out, err = module.run_command(args, use_unsafe_shell=True)
     if rc != 0:
         module.fail_json(msg=out + err)
 
@@ -83,8 +83,8 @@ def fetch_tarball(module, build_dir, name, base_url, version, asc_suffix=".asc")
         if not os.path.exists(tarball):
             url = base_url + "{}-{}.tar.gz".format(name, version)
             asc_url = url + asc_suffix
-            check_command(module, "curl -L {} > {}".format(url, tarball))
-            check_command(module, "curl -L {} > {}".format(asc_url, asc))
+            check_command(module, "curl -L {} -o {}".format(url, tarball))
+            check_command(module, "curl -L {} -o {}".format(asc_url, asc))
             verify_signature(module, build_dir, tarball, asc, name)
             check_command(module, "tar -xz --directory {} -f {}".format(build_dir, tarball))
     return base_dir
@@ -134,10 +134,8 @@ def main():
     # Build everything!
     #
 
-    try:
+    if not os.path.exists(build_dir):
         os.makedirs(build_dir)
-    except OSError:
-        pass
 
     openssl_base_dir = fetch_tarball(module, build_dir, "openssl",
             "http://www.openssl.org/source/", openssl_version)
