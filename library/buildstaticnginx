@@ -190,7 +190,9 @@ def main():
     }
     if clean_after:
         shutil.rmtree(build_dir)
+
     module.exit_json(**result)
+    return
 
 # Magic from ansible.
 #<<INCLUDE_ANSIBLE_MODULE_COMMON>>

@@ -1,5 +1,13 @@
 ---
 # Install nginx
+ - name: Install build-essentials
+   apt: pkg=build-essential state=present
+   sudo: yes
+
+ - name: Install zlib
+   apt: pkg=zlib1g-dev state=present
+   sudo: yes
+
  - name: Make build dir
    command: mkdir -p {{ build_dir }}
    sudo: yes
